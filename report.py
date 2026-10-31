@@ -10,6 +10,9 @@ __all__ = ["report", "inv_violations", "unconnected_nodes"]
 
 _EPS = 1e-9
 
+# _near_pairs 是 O(n²) 扫描；超过这个节点数就跳过，并如实报「未检查」
+NEAR_PAIRS_LIMIT = 5000
+
 
 def _fmt(p) -> str:
     """坐标格式化：(3000, 0, 800)"""
@@ -80,11 +83,16 @@ def _components(model: Model) -> int:
     return len(roots)
 
 
-def _near_pairs(model: Model, step_um: int) -> list[tuple[int, int]]:
-    """距离小于一个量化步长、但不是同一坐标的节点对"""
+def _near_pairs(model: Model, step_um: int) -> list[tuple[int, int]] | None:
+    """距离小于一个量化步长、但不是同一坐标的节点对。
+
+    节点过多时返回 None（= 未检查），由调用方如实说明。
+    绝不能在没算的情况下返回 []，那样报告会显示「0 个」，
+    把「没检查」伪装成「检查过且没问题」—— 属于诊断工具最坏的失败方式。
+    """
     nodes = [(n.id, n.xyz) for n in model.nodes.values()]
-    if len(nodes) > 5000:
-        return []
+    if len(nodes) > NEAR_PAIRS_LIMIT:
+        return None
     out = []
     for a in range(len(nodes)):
         ida, xa = nodes[a]
@@ -218,7 +226,10 @@ def report(model: Model, *, short_mm: float = 150.0, show_cuts: bool = True) -> 
     from .geometry import get_quantum
     near = _near_pairs(model, int(round(get_quantum() * UM_PER_MM)))
     lines.append("")
-    if near:
+    if near is None:
+        lines.append(f"量化近似点：未检查（节点 {len(nodes)} > {NEAR_PAIRS_LIMIT}，"
+                     f"O(n²) 扫描跳过）")
+    elif near:
         lines.append(f"量化近似点（距离 < 1 个量化步长但未合并）：{len(near)}")
         for a, b in near[:10]:
             lines.append(f"  {_fmt(model.nodes[a].point)} ↔ {_fmt(model.nodes[b].point)}")

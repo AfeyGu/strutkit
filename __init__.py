@@ -32,7 +32,7 @@
     print(m.report())
 """
 
-from .geometry import Axis, PointSet, get_quantum, set_quantum, to_mm, to_um
+from .geometry import Axis, PointSet, get_quantum, set_quantum, step_um, to_mm, to_um
 from .model import ConflictError, Group, Member, Model, Node
 from .report import inv_violations, report, unconnected_nodes
 from .export import export_dxf, export_fea
@@ -44,5 +44,5 @@ __all__ = [
     "Model", "Group", "Node", "Member", "ConflictError",
     "report", "inv_violations", "unconnected_nodes",
     "export_dxf", "export_fea",
-    "set_quantum", "get_quantum", "to_um", "to_mm",
+    "set_quantum", "get_quantum", "step_um", "to_um", "to_mm",
 ]

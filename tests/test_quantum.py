@@ -82,3 +82,21 @@ def test_near_pair_reported():
     assert len(m.nodes) == 4
     text = m.report()
     assert "量化近似点" in text
+
+
+def test_near_pair_skipped_is_declared(monkeypatch):
+    """节点太多跳过扫描时，报告必须写「未检查」，不能写成「0 个」。
+
+    「没查」伪装成「查过没问题」是诊断工具最坏的失败方式。
+    """
+    import importlib
+
+    # 注意：包 __init__ 里的 report 函数遮蔽了同名子模块，
+    # 所以 `import strutkit.report as R` 拿到的是函数，必须走 importlib
+    R = importlib.import_module("strutkit.report")
+
+    m = Model()
+    m.define("G").add((0, 0, 0), (1000, 0, 0))
+    monkeypatch.setattr(R, "NEAR_PAIRS_LIMIT", 1)
+    text = m.report()
+    assert "未检查" in text

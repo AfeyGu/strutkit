@@ -13,7 +13,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Sequence
 
-from .geometry import Axis, PointSet, to_mm, to_um
+from .geometry import Axis, PointSet, step_um, to_mm, to_um
 
 __all__ = ["Node", "Member", "Model", "Group", "ConflictError"]
 
@@ -169,11 +169,20 @@ class Model:
         self._nodes[ni].sources.add(mb.id)
         self._nodes[nj].sources.add(mb.id)
 
-        # ① 新节点切旧构件
-        self._split_others_at(ni, skip=mb.id)
-        self._split_others_at(nj, skip=mb.id)
-        # ② 旧节点切新构件
-        produced = self._split_self(mb)
+        # ① 新节点切旧构件  ② 旧节点切新构件
+        try:
+            self._split_others_at(ni, skip=mb.id)
+            self._split_others_at(nj, skip=mb.id)
+            produced = self._split_self(mb)
+        except ConflictError:
+            # 新构件与已有构件重合（同组共线重叠 = 重复杆件）。
+            # 回滚新构件本身：它还没被切开，摘掉即可。
+            # 其他构件此前发生的打断切点都是真实节点，属于有效打断，予以保留。
+            self._members.pop(mb.id, None)
+            self._poskey.pop(key, None)
+            self._nodes[ni].sources.discard(mb.id)
+            self._nodes[nj].sources.discard(mb.id)
+            raise
 
         return produced[0] if len(produced) == 1 else produced
 
@@ -181,15 +190,34 @@ class Model:
 
     @staticmethod
     def _on_segment(p, q, n) -> bool:
-        """n 是否严格落在 p→q 内部（整数精确，不用容差）"""
+        """n 是否落在 p→q 内部。
+
+        绝对判定：整数叉积/点积，零浮点，结果可复现。
+
+        容差（tolerance = 1 个量化步长）的作用与边界：
+          - 放宽「到直线的垂直距离」：量化把本应共线的点挤出直线，
+            最大偏离 (q/2)·√3 ≈ 0.87q，故容差取 1q 刚好覆盖；
+          - 不放宽「落在两端之间」：点必须在杆的跨度内部；
+          - 与两端各留 1q 的余量：否则会在端点旁切出长度 < 1q 的微段。
+        判定用平方比较（|cross|² ≤ tol²·|d|²），不开方，仍然全整数。
+        """
         dx, dy, dz = q[0] - p[0], q[1] - p[1], q[2] - p[2]
         vx, vy, vz = n[0] - p[0], n[1] - p[1], n[2] - p[2]
-        # 叉积为零 → 共线
-        if dy * vz - dz * vy or dz * vx - dx * vz or dx * vy - dy * vx:
-            return False
         dd = dx * dx + dy * dy + dz * dz
+        if dd == 0:
+            return False
+        limit = step_um() ** 2 * dd          # (tol·|d|)²，同时用于两个判定
+
         dv = dx * vx + dy * vy + dz * vz
-        return 0 < dv < dd
+        if not (0 < dv < dd):
+            return False                     # 投影必须落在杆的跨度内部
+        if dv * dv < limit or (dd - dv) * (dd - dv) < limit:
+            return False                     # 离某一端不足一个容差 → 不切，避免微段
+
+        cx = dy * vz - dz * vy
+        cy = dz * vx - dx * vz
+        cz = dx * vy - dy * vx
+        return cx * cx + cy * cy + cz * cz <= limit
 
     def _group_split(self, group_name: str | None):
         if group_name is None:
@@ -222,6 +250,7 @@ class Model:
     def _split_others_at(self, nid: int, skip: int | None):
         """新节点 nid 可能切开已有构件"""
         node = self._nodes[nid]
+        tol = step_um()          # 容差会让"差一点点"的节点也落在杆上，包围盒同步外扩
         for mb in list(self._members.values()):
             if mb.id == skip:
                 continue
@@ -229,9 +258,9 @@ class Model:
                 continue
             p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
             # 包围盒快速排除
-            if not (min(p[0], q[0]) <= node.xyz[0] <= max(p[0], q[0]) and
-                    min(p[1], q[1]) <= node.xyz[1] <= max(p[1], q[1]) and
-                    min(p[2], q[2]) <= node.xyz[2] <= max(p[2], q[2])):
+            if not (min(p[0], q[0]) - tol <= node.xyz[0] <= max(p[0], q[0]) + tol and
+                    min(p[1], q[1]) - tol <= node.xyz[1] <= max(p[1], q[1]) + tol and
+                    min(p[2], q[2]) - tol <= node.xyz[2] <= max(p[2], q[2]) + tol):
                 continue
             if not self._on_segment(p, q, node.xyz):
                 continue
@@ -244,13 +273,14 @@ class Model:
         if mb.id not in self._members:
             return [mb]  # 已被切过
         p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
+        tol = step_um()          # 同 _split_others_at：包围盒随容差外扩
         cuts = []
         for node in self._nodes.values():
             if node.id in (mb.i, mb.j):
                 continue
-            if not (min(p[0], q[0]) <= node.xyz[0] <= max(p[0], q[0]) and
-                    min(p[1], q[1]) <= node.xyz[1] <= max(p[1], q[1]) and
-                    min(p[2], q[2]) <= node.xyz[2] <= max(p[2], q[2])):
+            if not (min(p[0], q[0]) - tol <= node.xyz[0] <= max(p[0], q[0]) + tol and
+                    min(p[1], q[1]) - tol <= node.xyz[1] <= max(p[1], q[1]) + tol and
+                    min(p[2], q[2]) - tol <= node.xyz[2] <= max(p[2], q[2]) + tol):
                 continue
             if self._on_segment(p, q, node.xyz) and self._allows(mb, node.id):
                 cuts.append(node.id)
@@ -275,6 +305,20 @@ class Model:
         se_l, se_r = _se_pair(
             (self._groups[mb.group].split_ends if mb.group else None)
         )
+
+        # 预检：打断产生的段若与已有构件重合，说明模型里存在重复杆件
+        # （同组、共线、部分重叠）。必须在此拦下 —— 否则 _poskey 会被静默
+        # 覆盖，之后 remove()/merge() 会按位置键错删另一根。
+        # 注意：本检查在改动 _members 之前完成，因此这一根构件不会留下半成品。
+        for a, b in zip(pts, pts[1:]):
+            key = (mb.group, min(a, b), max(a, b))
+            if key in self._poskey:
+                other = self._members.get(self._poskey[key])
+                raise ConflictError(
+                    f"打断会产生与已有构件重合的段：组={mb.group!r} "
+                    f"{self._nodes[a].point} → {self._nodes[b].point}"
+                    + (f"（已有构件 id={other.id}）" if other else "")
+                )
 
         # 注销原构件
         del self._members[mb.id]

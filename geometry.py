@@ -69,6 +69,15 @@ def get_quantum() -> float:
     return _QUANTIZER.quantum_mm
 
 
+def step_um() -> int:
+    """当前量化步长折算成 μm 整数（默认 0.1mm → 100μm）。
+
+    几何判定（共线容差、近似点距离）一律以「1 个量化步长」为单位，
+    这样整个库只有 set_quantum 一个精度旋钮，不需要第二个参数。
+    """
+    return _QUANTIZER.step_um
+
+
 def to_um(value_mm: float) -> int:
     """mm → μm 整数（带量化）"""
     return _QUANTIZER(value_mm)
@@ -558,6 +567,12 @@ class PointSet:
                 f"集合运算要求轴的维度与方向一致："
                 f"{[a.axis for a in self.axes]} vs {[a.axis for a in other.axes]}"
             )
+        # offset 不同意味着两边不在同一个坐标系里，坐标不能直接比较
+        if self.offset != other.offset:
+            raise ValueError(
+                f"集合运算要求两边平移量相同：{self.offset} vs {other.offset}；"
+                f"请先用 shift() 把两边对齐到同一坐标系"
+            )
         if op == "or":
             pts = self._pts_um() | other._pts_um()
         elif op == "and":
@@ -572,10 +587,11 @@ class PointSet:
             a, b = self.axes[i], other.axes[i]
             um = tuple(sorted(set(a.um) | set(b.um)))
             new_axes.append(Axis(axis=name, um=um))
-        full = PointSet(axes=tuple(new_axes), keep=None)
+        axes = tuple(new_axes)
+        full = PointSet(axes=axes, keep=None, offset=self.offset)
         keep = tuple(i for i, (_, p) in enumerate(full.items())
                      if tuple(to_um(c) for c in p) in pts)
-        return PointSet(axes=tuple(new_axes), keep=keep)
+        return PointSet(axes=axes, keep=keep, offset=self.offset)
 
     def __or__(self, other):
         return self._set_op(other, "or")
