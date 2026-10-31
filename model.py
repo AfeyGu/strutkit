@@ -381,7 +381,7 @@ class Model:
 
     def report(self, **kw) -> str:
         """体检报告（只读，不修改模型）"""
-        from .report import report as _report
+        from .diagnostics import report as _report
         return _report(self, **kw)
 
     def export_dxf(self, path: str, **kw) -> str:

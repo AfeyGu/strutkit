@@ -92,7 +92,7 @@ def test_xbrace_split_all_would_slice():
 
 
 def test_connectivity():
-    from strutkit.report import _components
+    from strutkit.diagnostics import _components
     m, *_ = build()
     assert _components(m) == 1
 

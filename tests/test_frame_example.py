@@ -83,7 +83,7 @@ def test_no_unspecified_ends():
 
 def test_inv_and_connectivity():
     from strutkit import inv_violations
-    from strutkit.report import _components
+    from strutkit.diagnostics import _components
 
     m, *_ = build()
     assert inv_violations(m) == []

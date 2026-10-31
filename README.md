@@ -76,8 +76,8 @@ m.export_fea("out/nodes.csv", "out/members.csv")
 
 ```
 strutkit/           ← 包本体（__init__.py 直接在这一层）
-├── geometry.py / model.py / report.py / export.py
-├── tests/          109 个测试（含 hypothesis 性质测试）
+├── geometry.py / model.py / diagnostics.py / export.py
+├── tests/          115 个测试（含 hypothesis 性质测试）
 ├── examples/       三个示例：货架、多层框架（带次梁）、真实规模回归
 └── tools/          dxf2svg.py：DXF → 轴测图（PNG/SVG）
 ```

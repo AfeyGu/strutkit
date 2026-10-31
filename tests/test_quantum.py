@@ -89,11 +89,7 @@ def test_near_pair_skipped_is_declared(monkeypatch):
 
     「没查」伪装成「查过没问题」是诊断工具最坏的失败方式。
     """
-    import importlib
-
-    # 注意：包 __init__ 里的 report 函数遮蔽了同名子模块，
-    # 所以 `import strutkit.report as R` 拿到的是函数，必须走 importlib
-    R = importlib.import_module("strutkit.report")
+    import strutkit.diagnostics as R
 
     m = Model()
     m.define("G").add((0, 0, 0), (1000, 0, 0))

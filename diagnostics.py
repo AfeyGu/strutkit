@@ -1,4 +1,10 @@
-"""体检报告：把「图上看着连上、计算里断开」变成一行行文字。"""
+"""体检报告：把「图上看着连上、计算里断开」变成一行行文字。
+
+**模块名故意不叫 `report`。** 包级导出里有一个同名函数
+`strutkit.report(...)`，若子模块也叫 `report`，包属性会被函数遮蔽：
+`import strutkit.report as R` 拿到的是函数而不是模块，且没有任何提示。
+改名后 `import strutkit.diagnostics` 才指向模块本身。
+"""
 
 from __future__ import annotations
 
@@ -126,7 +132,7 @@ def report(model: Model, *, short_mm: float = 150.0, show_cuts: bool = True) -> 
 
     # ── INV ──────────────────────────────────────────────
     bad = inv_violations(model)
-    lines.append("INV: OK" if not bad else f"INV: ✗ 违反 {len(bad)} 处")
+    lines.append("INV: OK" if not bad else f"INV: × 违反 {len(bad)} 处")
     if bad:
         for mb, nid in bad[:10]:
             lines.append(f"    {mb.group} {_fmt(model.nodes[mb.i].point)}→"
@@ -228,11 +234,11 @@ def report(model: Model, *, short_mm: float = 150.0, show_cuts: bool = True) -> 
     lines.append("")
     if near is None:
         lines.append(f"量化近似点：未检查（节点 {len(nodes)} > {NEAR_PAIRS_LIMIT}，"
-                     f"O(n²) 扫描跳过）")
+                     f"O(n^2) 扫描跳过）")
     elif near:
         lines.append(f"量化近似点（距离 < 1 个量化步长但未合并）：{len(near)}")
         for a, b in near[:10]:
-            lines.append(f"  {_fmt(model.nodes[a].point)} ↔ {_fmt(model.nodes[b].point)}")
+            lines.append(f"  {_fmt(model.nodes[a].point)} ←→ {_fmt(model.nodes[b].point)}")
     else:
         lines.append("量化近似点：0")
 

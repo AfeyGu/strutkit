@@ -147,7 +147,7 @@ def test_order_independent(segs, seed):
 def test_split_is_complete(segs):
     """打断完成后，构件内部不应再存在「允许打断它」的节点。
 
-    这是 INV 不变式的通用版本；report.py 的 inv_violations 是它的报告形态。
+    这是 INV 不变式的通用版本；diagnostics.py 的 inv_violations 是它的报告形态。
     """
     m = build(segs, split="all")
     for mb in m.members.values():

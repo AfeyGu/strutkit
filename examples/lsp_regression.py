@@ -189,10 +189,10 @@ def main():
     print("── 回归 1：立柱分段数 ──")
     print(f"  新库自动打断：{sorted(set(got.values()))} 段/根")
     print(f"  按「斜撑实际端点」推算：{sorted(set(expect.values()))} 段/根")
-    print(f"  不一致：{len(mismatch)} 根" + ("  ✓" if not mismatch else f"  ✗ {mismatch[:3]}"))
+    print(f"  不一致：{len(mismatch)} 根" + ("  √" if not mismatch else f"  × {mismatch[:3]}"))
     print(f"  按 LSP 原始规则((j mod 4)∈{{0,3}}→LZ1)：{len(lsp_mismatch)} 根不一致")
     print()
-    print("  ⚠ LSP 自身的不一致（不是新库的问题）：")
+    print("  注意：LSP 自身的不一致（不是新库的问题）")
     print("     斜撑画在 (Y[j], Y[j+1]) 平面内，起点用 XC1 标高、终点用 XC2 标高，")
     print("     所以偶数 j 的柱该用 LZ1、奇数 j 该用 LZ2；")
     print("     但 LSP 用的是 (j mod 4)∈{0,3}→LZ1，导致 j=2,3,6,7 四条线的柱分段标高错位。")
@@ -203,7 +203,7 @@ def main():
     print("── 回归 2：构件统计 ──")
     total = sum(g.count() for g in groups.values())
     print(f"  分组构件合计 {total}，模型总数 {len(m.members)}"
-          + ("  ✓" if total == len(m.members) else "  ✗ 有未分组构件"))
+          + ("  √" if total == len(m.members) else "  × 有未分组构件"))
     print()
 
     # ── 报告摘要 ──

@@ -34,7 +34,7 @@
 
 from .geometry import Axis, PointSet, get_quantum, set_quantum, step_um, to_mm, to_um
 from .model import ConflictError, Group, Member, Model, Node
-from .report import inv_violations, report, unconnected_nodes
+from .diagnostics import inv_violations, report, unconnected_nodes
 from .export import export_dxf, export_fea
 
 __version__ = "0.1.0"
