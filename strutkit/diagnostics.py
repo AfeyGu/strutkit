@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from .geometry import UM_PER_MM
+from .geometry import UM_PER_MM, step_um
 from .model import Member, Model
 
 __all__ = ["report", "inv_violations", "unconnected_nodes"]
@@ -37,18 +37,29 @@ def _length_um(model: Model, mb: Member) -> int:
     return int(round(((q[0] - p[0]) ** 2 + (q[1] - p[1]) ** 2 + (q[2] - p[2]) ** 2) ** 0.5))
 
 
+def _inner_nodes(model: Model, mb: Member):
+    """mb 内部（不含两端）落在它身上的节点。
+
+    走模型的空间索引取候选，不扫全节点表——诊断和建模必须用同一套空间结构，
+    否则模型建得再快，一 print(report()) 又回到 O(构件 × 节点)。
+    """
+    p, q = model.nodes[mb.i].xyz, model.nodes[mb.j].xyz
+    lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
+    hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
+    for nid in model._candidate_nodes(lo, hi, pad=step_um()):
+        if nid == mb.i or nid == mb.j:
+            continue
+        if model._on_segment(p, q, model.nodes[nid].xyz):
+            yield nid
+
+
 def inv_violations(model: Model) -> list[tuple[Member, int]]:
     """不变式 INV：构件内部不应存在「允许打断它」的节点。返回违反项。"""
     bad = []
     for mb in model.members.values():
-        p, q = model.nodes[mb.i].xyz, model.nodes[mb.j].xyz
-        for node in model.nodes.values():
-            if node.id in (mb.i, mb.j):
-                continue
-            if not model._on_segment(p, q, node.xyz):
-                continue
-            if model._allows(mb, node.id):
-                bad.append((mb, node.id))
+        for nid in _inner_nodes(model, mb):
+            if model._allows(mb, nid):
+                bad.append((mb, nid))
     return bad
 
 
@@ -56,14 +67,9 @@ def unconnected_nodes(model: Model) -> list[tuple[Member, int]]:
     """内部有节点、但 split 策略不允许打断（大 X 交叉斜撑的正常情形）"""
     out = []
     for mb in model.members.values():
-        p, q = model.nodes[mb.i].xyz, model.nodes[mb.j].xyz
-        for node in model.nodes.values():
-            if node.id in (mb.i, mb.j):
-                continue
-            if not model._on_segment(p, q, node.xyz):
-                continue
-            if not model._allows(mb, node.id):
-                out.append((mb, node.id))
+        for nid in _inner_nodes(model, mb):
+            if not model._allows(mb, nid):
+                out.append((mb, nid))
     return out
 
 
@@ -97,16 +103,35 @@ def _near_pairs(model: Model, step_um: int) -> list[tuple[int, int]] | None:
     把「没检查」伪装成「检查过且没问题」—— 属于诊断工具最坏的失败方式。
     """
     nodes = [(n.id, n.xyz) for n in model.nodes.values()]
-    if len(nodes) > NEAR_PAIRS_LIMIT:
+    cell = model._cell_um
+    if cell is None and len(nodes) > NEAR_PAIRS_LIMIT:
         return None
     out = []
-    for a in range(len(nodes)):
-        ida, xa = nodes[a]
-        for b in range(a + 1, len(nodes)):
-            idb, xb = nodes[b]
-            d2 = sum((xa[k] - xb[k]) ** 2 for k in range(3))
-            if 0 < d2 < step_um * step_um:
-                out.append((ida, idb))
+    lim2 = step_um * step_um
+    if cell is None:                     # 索引关闭：只能全对
+        for a in range(len(nodes)):
+            ida, xa = nodes[a]
+            for b in range(a + 1, len(nodes)):
+                idb, xb = nodes[b]
+                d2 = sum((xa[k] - xb[k]) ** 2 for k in range(3))
+                if 0 < d2 < lim2:
+                    out.append((ida, idb))
+        return out
+    # 索引开启：只比同格与相邻 26 格的节点（距离 < 1 步必然落在这些格子里）
+    for ida, xa in nodes:
+        cx, cy, cz = xa[0] // cell, xa[1] // cell, xa[2] // cell
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    for idb in model._ngrid.get((cx + dx, cy + dy, cz + dz), ()):
+                        if idb <= ida:
+                            continue
+                        xb = model.nodes[idb].xyz
+                        d2 = ((xa[0] - xb[0]) ** 2 + (xa[1] - xb[1]) ** 2
+                              + (xa[2] - xb[2]) ** 2)
+                        if 0 < d2 < lim2:
+                            out.append((ida, idb))
+    out.sort()
     return out
 
 

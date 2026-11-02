@@ -85,14 +85,21 @@ def test_near_pair_reported():
 
 
 def test_near_pair_skipped_is_declared(monkeypatch):
-    """节点太多跳过扫描时，报告必须写「未检查」，不能写成「0 个」。
+    """跳过扫描时，报告必须写「未检查」，不能写成「0 个」。
 
     「没查」伪装成「查过没问题」是诊断工具最坏的失败方式。
+    索引开启后按格子查（O(n) 而非 O(n²)），不再受节点数上限约束，
+    所以「未检查」只会出现在关闭索引（cell_mm=None）的全表扫分支。
     """
     import strutkit.diagnostics as R
 
-    m = Model()
+    m = Model(cell_mm=None)                  # 关闭索引 → 全表扫，受上限约束
     m.define("G").add((0, 0, 0), (1000, 0, 0))
     monkeypatch.setattr(R, "NEAR_PAIRS_LIMIT", 1)
-    text = m.report()
-    assert "未检查" in text
+    assert "未检查" in m.report()
+
+    m2 = Model()                              # 索引开启 → 真的查了，如实报数
+    m2.define("G").add((0, 0, 0), (1000, 0, 0))
+    text = m2.report()
+    assert "未检查" not in text
+    assert "量化近似点：0" in text
