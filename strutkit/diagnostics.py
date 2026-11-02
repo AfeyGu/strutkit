@@ -242,6 +242,12 @@ def report(model: Model, *, short_mm: float = 150.0, show_cuts: bool = True) -> 
     else:
         lines.append("量化近似点：0")
 
+    # ── X 形交叉打断（只有真的发生时才占一行）─────────────
+    xsplit = getattr(model, "_xsplit", 0)
+    if xsplit:
+        lines.append("")
+        lines.append(f"交叉打断（X 形）：{xsplit} 个节点由两杆交点生成")
+
     # ── 切点来源 ──────────────────────────────────────────
     if show_cuts:
         lines.append("")

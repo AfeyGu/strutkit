@@ -83,15 +83,24 @@ def test_split_order_independent():
     assert COL.count() == 2
 
 
-def test_crossing_points_never_split():
-    """X 形交叉点不是节点，两根都不该被切"""
-    m = _m()
-    A = m.define("A", split="all")
-    B = m.define("B", split="all")
-    A.add((0, 0, 0), (2000, 2000, 0))
-    B.add((0, 2000, 0), (2000, 0, 0))
-    assert A.count() == 1
-    assert B.count() == 1
+def test_crossing_splits_only_when_both_sides_allow():
+    """X 形交叉：双方都放行才在交点断开；单向放行等于白断（断了一边没连上）"""
+    def build(col_split, beam_split):
+        m = _m()
+        COL = m.define("COL", split=col_split)
+        BEAM = m.define("BEAM", split=beam_split)
+        for x in (0, 3000, 6000):
+            COL.add((x, 0, 0), (x, 0, 3000))
+        BEAM.add((0, 0, 1500), (6000, 0, 1500))     # 中间那根柱是被"穿过"的
+        return COL, BEAM, m
+
+    COL, BEAM, m = build("all", ["COL"])            # 双向放行
+    assert (COL.count(), BEAM.count()) == (6, 2)
+    assert m._xsplit == 1
+
+    COL, BEAM, m = build("none", ["COL"])           # 柱不放行 → 什么都不做
+    assert (COL.count(), BEAM.count()) == (3, 1)
+    assert m._xsplit == 0
 
 
 def test_cell_mm_validation_and_equivalence():

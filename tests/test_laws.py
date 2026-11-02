@@ -16,7 +16,8 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from strutkit import Axis, ConflictError, Model, PointSet, get_quantum, set_quantum
+from strutkit import (Axis, ConflictError, Model, PointSet, get_quantum,
+                      set_quantum, step_um)
 
 # ─────────────────────────────────────────────────────────────
 # 生成器
@@ -218,15 +219,16 @@ def _components(m: Model) -> int:
 
 @settings(max_examples=80, deadline=None)
 @given(segs=segments)
-def test_split_creates_no_new_nodes(segs):
-    """打断只搬运已有节点，不造新点。
+def test_all_nodes_stay_on_quantum_grid(segs):
+    """打断可以造新点（X 形交叉点），但所有坐标必须仍在量化网格上。
 
-    切点必须是模型里已经存在的节点；若打断能凭空造点，
-    坐标就不再只由用户输入决定，量化体系也就不封闭了。
+    旧不变量是「打断只搬运已有节点」；交叉打断刻意放宽了它——两根杆的中点
+    相交处本来没有节点，却必须造一个出来。放宽的代价封在这里：新点只能落在
+    量化网格上，否则坐标就不再完全由「用户输入 + 量子」决定。
     """
-    a = build(segs, split="all")
-    b = build(segs, split="none")
-    assert {n.xyz for n in a.nodes.values()} == {n.xyz for n in b.nodes.values()}
+    m = build(segs, split="all")
+    step = step_um()
+    assert all(c % step == 0 for n in m.nodes.values() for c in n.xyz)
 
 
 @settings(max_examples=60, deadline=None)
