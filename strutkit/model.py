@@ -90,6 +90,11 @@ class Model:
                split_ends="__inherit__") -> "Group":
         if name in self._groups:
             raise ValueError(f"组 {name!r} 已定义")
+        if isinstance(split, str) and split not in ("none", "all"):
+            raise ValueError(
+                f"split={split!r} 不是合法取值：组名白名单要写成列表，如 split=[\"{split}\"]"
+                f"（写成字符串会被当成字符集合，白名单会静默失效）"
+            )
         if split_ends == "__inherit__":
             split_ends = self._default_split_ends
         grp = Group(self, name, split=split, attrs=attrs, keys=keys,

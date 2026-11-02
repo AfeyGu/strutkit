@@ -94,6 +94,16 @@ def test_crossing_points_never_split():
     assert B.count() == 1
 
 
+def test_split_string_is_rejected():
+    """split 写成字符串要立刻报错：它会被当成字符集合，白名单静默失效"""
+    m = _m()
+    with pytest.raises(ValueError, match="组名白名单要写成列表"):
+        m.define("X", split="COL")          # 少写了方括号
+    m.define("A", split="none")             # 合法取值照常
+    m.define("B", split="all")
+    m.define("C", split=["A"])
+
+
 def test_split_whitelist():
     """只允许被 BEAM 打断：斜撑端点落在柱上不切，梁端点落在柱上才切"""
     m = _m()
