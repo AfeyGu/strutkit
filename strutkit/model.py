@@ -188,10 +188,13 @@ class Model:
         try:
             self._split_others_at(ni, skip=mb.id)
             self._split_others_at(nj, skip=mb.id)
-            for xyz in self._crossing_nodes(mb):     # ③ X 形：双方都放行才断
+            for xyz, other in self._crossing_hits(mb):    # ③ X 形：双方都放行才断
                 nid = self._node_id_um(xyz)
                 self._xsplit += 1
-                self._split_others_at(nid, skip=mb.id, src_group=group_name)
+                # 交点就落在这根 other 上，直接切它，不必再扫一遍全模型
+                if (other.id in self._members and
+                        nid not in (other.i, other.j)):
+                    self._split_member(other, [nid])
             produced = self._split_self(mb)
         except ConflictError:
             # 新构件与已有构件重合（同组共线重叠 = 重复杆件）。
@@ -345,7 +348,7 @@ class Model:
         i2 = tuple(int(round(v)) for v in c2)
         return i1 if i1 == i2 else None
 
-    def _crossing_nodes(self, mb: Member) -> list[tuple[int, int, int]]:
+    def _crossing_hits(self, mb: Member) -> list[tuple[tuple[int, int, int], Member]]:
         """本构件与「双方都放行」的构件相交处的网格点（X 形）。
 
         T 形（端点落在对方身上）由 _split_self / _split_others_at 负责，
@@ -356,7 +359,7 @@ class Model:
         p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
         lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
         hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
-        out: list[tuple[int, int, int]] = []
+        out: list[tuple[tuple[int, int, int], Member]] = []
         for other in self._members.values():
             if other.id == mb.id:
                 continue
@@ -375,7 +378,7 @@ class Model:
             if not (self._on_segment_exact(p, q, hit) and
                     self._on_segment_exact(r, s, hit)):
                 continue                      # 交点不在网格整点上，放弃
-            out.append(hit)
+            out.append((hit, other))
         return out
 
     def _split_others_at(self, nid: int, skip: int | None, src_group: str | None = None):
