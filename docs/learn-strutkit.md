@@ -261,7 +261,7 @@ Z.mirror(0).role          # ('二层楼面', '一层楼面')   镜像后 role �
 (Z | Axis.points([0], axis="z")).role   # None    集合运算后 role 一律丢弃，避免错位
 ```
 
-标签和点是一一对应的，数量必须等于**点数**：
+批量造标签的写法（A、B……X，A1、A2）见 §6.4。标签和点是一一对应的，数量必须等于**点数**：
 
 ```python
 Axis.spans([6000, 6000], axis="x", role=["柱1", "柱2"])   # 3 个点只给 2 个名
@@ -1347,7 +1347,7 @@ list(zip(X, Axis.points([0, 1000, 2000], axis="y")))
 # [(0.0, 0.0), (6000.0, 1000.0), (12000.0, 2000.0)]
 ```
 
-### 6.4 列表推导式：一条式子生成一批坐标
+### 6.4 列表推导式：一条式子生成一批坐标或标签
 
 ```python
 [x + 500 for x in X]           # 每个柱位偏移 500
@@ -1364,6 +1364,47 @@ list(zip(X, Axis.points([0, 1000, 2000], axis="y")))
 ```
 
 同一个需求往往有三种写法：三重 `for`、推导式、`add_chain`。**选读起来最不费劲的那个**，不必追求短。
+
+#### 造标签：A…X、A1、A2
+
+坐标是数字、标签是字符串，但**生成它们的语法完全一样**，只是元素来源不同。
+
+```python
+n = 24
+list(range(1, n + 1))                      # [1, 2, 3, …, 24]          数字
+[chr(ord("A") + i) for i in range(n)]      # ['A', 'B', …, 'X']        「从 A 起数 i 个」
+list("ABCDEFGHIJKLMNOPQRSTUVWX")           # 同上，最省事的写法
+list(string.ascii_uppercase[:n])           # 同上（import string）
+
+[f"A{i}" for i in range(1, 6)]             # ['A1', 'A2', 'A3', 'A4', 'A5']
+[f"{row}{i}" for row in "AB" for i in range(1, 4)]
+# ['A1', 'A2', 'A3', 'B1', 'B2', 'B3']     ← 两排轴号：外层 row、内层 i
+[f"{r}{i}" for i in range(1, 4) for r in "AB"]
+# ['A1', 'B1', 'A2', 'B2', 'A3', 'B3']   ← 同样的两个循环，换顺序就是按排交错
+[f"Z{i:02d}" for i in range(1, 4)]         # ['Z01', 'Z02', 'Z03']     补零，排序不出错
+```
+
+> 生成器表达式要 `list()` 包一下才是数组：`(chr(...) for i in range(n))` 是生成器，`list(...)` 才是 list。
+
+这些标签直接喂给 `Axis` 的 `role`，图纸上的轴号就变成了代码里的名字：
+
+```python
+XL = Axis.spans([6000] * 4, axis="x", role=[f"A{i}" for i in range(1, 6)])
+list(XL)            # [0.0, 6000.0, 12000.0, 18000.0, 24000.0]   5 条轴线
+XL.role_of("A3")    # 12000.0                按轴号取坐标，不用数下标
+
+YT = Axis.spans([6000], axis="y", role=["A排", "B排"])
+YT.role_of("B排")   # 6000.0
+```
+
+| 想要的标签 | 写法 |
+|---|---|
+| A B C … X | `[chr(ord("A") + i) for i in range(24)]` |
+| A1 A2 … A5 | `[f"A{i}" for i in range(1, 6)]` |
+| A1 A2 A3 B1 B2 B3 | `[f"{row}{i}" for row in "AB" for i in range(1, 4)]` |
+| A1 B1 A2 B2（按排交错） | `[f"{r}{i}" for i in range(1, 4) for r in "AB"]` |
+| A01 A02（排序友好） | `[f"A{i:02d}" for i in range(1, n + 1)]` |
+
 
 ### 6.5 `enumerate` 与解包
 
