@@ -512,6 +512,42 @@ class Model:
     _next_node, _next_member         # 编号计数器，只增不减
 ```
 
+#### `Model()` 的构造参数
+
+只有一个，而且**必须用关键字传**：
+
+```python
+m = Model()                                   # 什么都不传（最常用）
+m = Model(default_split_ends="刚接")           # 各组 define 时若没写 split_ends，就用它
+m = Model(default_split_ends=("刚接", "铰接"))  # 元组：左段 j 端 / 右段 i 端 分别填
+Model("刚接")                                  # ✗ TypeError：它是 keyword-only
+```
+
+它管的事很窄，只有一件：**构件被打断时，新接缝填什么端部条件**。
+
+```python
+m = Model(default_split_ends="刚接")
+C = m.define("C", split="all")            # 没写 split_ends → 继承模型默认
+B = m.define("B")
+C.add((0, 0, 0), (0, 0, 4000))
+B.add((0, 0, 2000), (1000, 0, 2000))      # 柱被打断成两段
+
+[s.ends for s in C.all()]
+# [{'i': None, 'j': '刚接'}, {'i': '刚接', 'j': None}]
+#   接缝填「刚接」；柱两端（i/j）仍是 None —— 没填就是不猜
+```
+
+三个容易踩的点：
+
+| 写法 | 接缝填什么 |
+|---|---|
+| 组里不写 `split_ends` | 继承 `Model(default_split_ends=...)` |
+| 组里写 `split_ends="铰接"` | 用组自己的，覆盖默认 |
+| 组里写 `split_ends=None` | **也覆盖**——等于"接缝不填"，不是"继承" |
+| 构件自己的 `ends` | **不受影响**，它只由 `define(ends=...)` 决定 |
+
+而且默认值只在 `define()` 那一刻读一次：模型建好之后再改这个字段，对已定义的组无效。
+
 #### 看一眼真实的对象
 
 建一个最小模型：两根柱、一根梁，梁的两端撞在柱身上，所以两根柱各被切成两段。
@@ -1324,7 +1360,7 @@ COL.set_ends(i="铰接")
 COL.set(section="H500")          # 改 attrs
 ```
 
-模型级也能给默认值，各组不写就继承：
+模型级也能给默认值，各组不写就继承（构造参数只有一个，且必须用关键字传，详见 §2.6）：
 
 ```python
 m = Model(default_split_ends="刚接")
