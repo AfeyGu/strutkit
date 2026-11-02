@@ -1,4 +1,7 @@
-"""典型货架：两排背靠背 × 10 跨 × 8 层
+"""应用例 · 某货架项目：两排背靠背 × 10 跨 × 8 层
+
+这不是库的「标准示例」，只是一个真实项目的落地：模型里的柱片、横梁、隔撑都是本项目的构件名，
+库本身不认识这些词。想看与任何项目无关的最小例子，去 `frame_demo.py`。
 
 按 `货架体系文字描述.md` 的构件清单与几何规则建模（变体 A：有偏置、有水平系杆）。
 
@@ -34,7 +37,8 @@ import sys
 import time
 
 # 把项目根加入搜索路径，这样不用安装也能 import strutkit
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PKG  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # strutkit/ 本身
+_ROOT = os.path.dirname(_PKG)                                        # 上一级，用于 import
 sys.path.insert(0, _ROOT)
 
 from strutkit import Axis, Model
@@ -181,7 +185,7 @@ def main():
     print(f"建模 {dt:.2f} s")
     print(m.report())
 
-    out = os.path.join(_ROOT, "out")      # 输出到项目根的 out/，库目录保持干净
+    out = os.path.join(_PKG, "out")       # 输出到仓库根的 out/（已 gitignore）
     os.makedirs(out, exist_ok=True)
     m.export_dxf(os.path.join(out, "rack.dxf"),
                  layers={"COL": 2, "BEAM": 4, "YBRACE": 7, "XBRACE": 6,

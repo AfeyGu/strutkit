@@ -1,6 +1,6 @@
 """把 strutkit 导出的 DXF 渲染成 SVG / PNG 预览。
 
-    python tools/dxf2svg.py out/rack_full.dxf
+    python tools/dxf2svg.py out/frame.dxf
 
 默认只出等轴测图 <name>_iso.png（加 --svg 同时输出矢量版）。
 需要别的视图时用 --views 指定，逗号分隔：
@@ -35,7 +35,7 @@ COLORS = {
     "XC":     (214, 130, 26),
     "YBRACE": (214, 130, 26),
     "ZBRACE": (214, 130, 26),
-    # 水平拉 / 背拉
+    # 水平拉 / 交叉支撑
     "SPL":    (150, 70, 180),
     "SPACER": (150, 150, 150),
     "BL":     (200, 50, 50),

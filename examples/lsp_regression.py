@@ -14,7 +14,8 @@ import sys
 import time
 
 # 把项目根加入搜索路径，这样不用安装也能 import strutkit
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+_PKG  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # strutkit/ 本身
+_ROOT = os.path.dirname(_PKG)                                        # 上一级，用于 import
 sys.path.insert(0, _ROOT)
 
 from strutkit import Axis, Model
@@ -98,7 +99,7 @@ def build():
         for i in range(len(Xs)):
             COL.add((Xs[i], Ys[j], 0), (Xs[i], Ys[j], TOP))
 
-    # ② 斜撑：j ∈ {0,2,4,6} 的柱片平面内，逐 X 画之字折线
+    # ② 斜撑：j ∈ {0,2,4,6} 的横向（Y–Z）平面内，逐 X 画之字折线
     for j in (0, 2, 4, 6):
         for i in range(len(Xs)):
             for p, q in zigzag(Xs[i], Ys[j], Xs[i], Ys[j + 1], XC1, XC2):
@@ -126,7 +127,7 @@ def build():
                 SPL.add((x0, y0, z), (x1, y1, z))
                 SPL.add((x0, y1, z), (x1, y0, z))
 
-    # ⑤ 背拉：X 每 5 跨、Y 每 6 段（余 1）、H 每 5 层；竖向跨 BL_H 层
+    # ⑤ 交叉斜撑（LSP 的 BL）：X 每 5 跨、Y 每 6 段（余 1）、H 每 5 层；竖向跨 BL_H 层
     for i in range(len(Xs)):
         if not (i < len(Xs) and i % BL_X_n == 0):
             continue
@@ -213,7 +214,7 @@ def main():
 
     # ── 导出 ──
     here = os.path.dirname(os.path.abspath(__file__))
-    out = os.path.join(_ROOT, "out")      # 输出到项目根的 out/，库目录保持干净
+    out = os.path.join(_PKG, "out")       # 输出到仓库根的 out/（已 gitignore）
     os.makedirs(out, exist_ok=True)
     m.export_dxf(os.path.join(out, "rack_full.dxf"),
                  layers={"LZ": 2, "HL": 4, "XC": 7, "SPL": 6, "BL": 1})

@@ -53,7 +53,7 @@ def inv_violations(model: Model) -> list[tuple[Member, int]]:
 
 
 def unconnected_nodes(model: Model) -> list[tuple[Member, int]]:
-    """内部有节点、但 split 策略不允许打断（大 X 背拉的正常情形）"""
+    """内部有节点、但 split 策略不允许打断（大 X 交叉斜撑的正常情形）"""
     out = []
     for mb in model.members.values():
         p, q = model.nodes[mb.i].xyz, model.nodes[mb.j].xyz

@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# 生成物（示例与导出写到 out/）
+out/
+
+# 打包产物
+*.egg-info/
+build/
+dist/

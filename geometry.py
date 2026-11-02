@@ -1,6 +1,6 @@
 """坐标量化、一维轴、多维点集。
 
-设计要点（见 .sisyph/notes/2026-10-30-货架几何库-设计规划.md）：
+设计要点（见 .sisyph/notes/2026-10-30-strutkit-设计规划.md）：
   - 对外单位 mm（float），对内单位 μm（int），入口处按 quantum 量化一次
   - 量化用「舍入到固定网格」而不是「容差比较」：一次决定，永久确定
   - Axis 是一维离散坐标表 + 每点语义角色；PointSet 是笛卡尔积的子集
@@ -546,8 +546,10 @@ class PointSet:
         ox, oy, oz = self.offset
         off = [ox, oy, oz]
         k = _AXES.index(name)
-        off[k] = 2 * c - off[k]
-        # 轴已镜像到新位置，offset 也要镜像
+        # 轴已经镜像到 (2c - a)，剩下的只是抵消原有平移：
+        #   a + o  →  (2c - a) + (-o) = 2c - (a + o)
+        # 这里不能再减一次 c，否则 about≠0 时会多偏 2c。
+        off[k] = -off[k]
         return PointSet(axes=tuple(new_axes), keep=self.keep,
                         offset=(off[0], off[1], off[2]))
 

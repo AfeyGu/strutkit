@@ -2,7 +2,7 @@
 
 血的教训：iso 投影的 Z 轴符号写反，所有轴测图上下颠倒，
 看图时「地面上的梁」其实是屋顶，「柱脚」其实是柱顶。
-光看图看不出问题（货架上下都像货架），必须用坐标验证。
+光看图看不出问题（结构上下长得像，颠倒了也顺眼），必须用坐标验证。
 
 这里锁死三件事：
   1. iso 投影里 z 越大，屏幕位置越靠上
@@ -45,14 +45,14 @@ def test_side_z_goes_up():
 
 
 def test_lowest_line_on_screen_is_lowest_z():
-    """图上最下方的线必须对应模型里最低的标高 —— 这是判定「货架有没有长反」的判据"""
+    """图上最下方的线必须对应模型里最低的标高 —— 这是判定「模型有没有长反」的判据"""
     from strutkit.tools.dxf2svg import parse_dxf
 
-    dxf = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.abspath(__file__)))), "out", "rack.dxf")
+    dxf = os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), "out", "frame.dxf")
     if not os.path.exists(dxf):
         import pytest
-        pytest.skip("需要先跑 examples/rack_demo.py 生成 out/rack.dxf")
+        pytest.skip("需要先跑 examples/frame_demo.py 生成 out/frame.dxf")
 
     lines = parse_dxf(dxf)
     proj = _project("iso")

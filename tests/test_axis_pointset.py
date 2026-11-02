@@ -106,6 +106,17 @@ def test_where():
 
 # ── PointSet ────────────────────────────────────────────────
 
+def test_pointset_mirror_about_nonzero():
+    """镜像关于任意位置：坐标 = 2c - 原坐标；offset 也要一起镜像"""
+    P = Axis.points([0, 1000], axis="x") * Axis.points([0], axis="y")
+    assert sorted(p[0] for p in P.mirror("x", about=0)) == [-1000.0, 0.0]
+    assert sorted(p[0] for p in P.mirror("x", about=1000)) == [1000.0, 2000.0]
+
+    Q = P.shift(x=500)                      # x = 500 / 1500
+    assert sorted(p[0] for p in Q.mirror("x", about=0)) == [-1500.0, -500.0]
+    assert sorted(p[0] for p in Q.mirror("x", about=1000)) == [500.0, 1500.0]
+
+
 def test_cartesian_product():
     X = Axis.points([0, 1000], axis="x")
     Z = Axis.points([0, 800], axis="z")

@@ -338,6 +338,24 @@ def test_mirror_twice_is_identity(coords):
 
 
 @given(
+    coords=st.lists(st.integers(0, 2000), min_size=1, max_size=4, unique=True),
+    about=st.integers(-1000, 4000),
+    dx=st.integers(-1000, 1000),
+)
+@settings(max_examples=50)
+def test_pointset_mirror_is_reflection(coords, about, dx):
+    """点阵镜像 = 关于 about 的反射：每个坐标都变成 2c − x（含 offset）"""
+    from strutkit.geometry import to_um
+
+    P = (Axis.points(sorted(float(c) for c in coords), axis="x")
+         * Axis.points([0.0], axis="y")).shift(x=float(dx))
+
+    got = sorted(to_um(p[0]) for p in P.mirror("x", about=about))
+    want = sorted(2 * to_um(about) - to_um(p[0]) for p in P)
+    assert got == want
+
+
+@given(
     coords=st.lists(st.integers(0, 5000), min_size=1, max_size=4, unique=True),
     a=st.floats(-200, 200, allow_nan=False, allow_infinity=False),
     b=st.floats(-200, 200, allow_nan=False, allow_infinity=False),

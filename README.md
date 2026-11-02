@@ -4,6 +4,8 @@
 
 不涉及任何力学计算——荷载、截面、铰接/刚接、支座上拔，全部作为属性原样搬运。
 
+库的词汇表里没有「柱」「梁」「货架」：只有 `Axis`（坐标轴 + 语义标签）、`PointSet`（点阵）、`Node`（节点）、`Member`（构件）、`Group`（组）。柱、梁、斜撑、桁架、网架、塔架、货架……都只是**你给组起的名字**，库不认、也不查。
+
 ```
 坐标量化（μm 整数，零容差）
     ↓
@@ -15,7 +17,7 @@ Member 构件 ────── 两端节点 + 自由属性 + 端部条件 + �
 出口：DXF（分图层直线）/ FEA（节点表 + 单元表）/ 体检报告
 ```
 
-**坐标约定**：X 纵向、Y 进深、**Z 竖直（重力方向 −Z）**。库本身与轴名无关，这个约定只影响脚本习惯和 DXF 在 CAD 里的朝向。
+**坐标约定**：X 纵向、Y 横向（宽度/进深）、**Z 竖直（重力方向 −Z）**。库本身与轴名无关，这个约定只影响脚本习惯和 DXF 在 CAD 里的朝向。
 
 ## 怎么用（不用安装）
 
@@ -25,7 +27,7 @@ Member 构件 ────── 两端节点 + 自由属性 + 端部条件 + �
 
 ```python
 import sys
-sys.path.insert(0, r"F:\工作区\货架体系")     # 指向 strutkit 的上一级
+sys.path.insert(0, r"<strutkit 的上一级目录>")     # 指向 strutkit 的上一级
 
 from strutkit import Axis, Model
 ```
@@ -33,9 +35,11 @@ from strutkit import Axis, Model
 **② 环境变量 `PYTHONPATH`（一次配置，所有项目生效）**
 
 ```cmd
-set PYTHONPATH=F:\工作区\货架体系          :: 当前窗口临时生效
+set PYTHONPATH=<strutkit 的上一级目录>          :: 当前窗口临时生效
 ```
 或者加进「系统属性 → 环境变量 → 用户变量」长期生效。
+
+> 本仓库根目录当前名为 `货架体系`（历史原因：同一目录里还放着货架项目的资料）。路径按实际位置填，库本身与这个目录名无关。
 
 **③ 想装进 Python 环境（可选）**
 
@@ -49,7 +53,7 @@ set PYTHONPATH=F:\工作区\货架体系          :: 当前窗口临时生效
 from strutkit import Axis, Model
 
 X  = Axis.spans([3000, 3000, 3000], axis="x")                  # 0, 3000, 6000, 9000
-Y  = Axis.spans([800], axis="y", role=["前排", "后排"])           # 0, 800
+Y  = Axis.spans([800], axis="y", role=["A", "B"])                # 0, 800
 ZL = Axis.spans([2000, 2000], axis="z", include_base=False)     # 2000, 4000
 
 m = Model()
@@ -65,38 +69,39 @@ for z in ZL:
             BEAM.add((X[i], y, z), (X[i + 1], y, z))
 
 print(m.report())                       # 体检报告
-m.export_dxf("out/rack.dxf", layers={"COLUMN": 2, "BEAM": 4})
+m.export_dxf("out/model.dxf", layers={"COLUMN": 2, "BEAM": 4})
 m.export_fea("out/nodes.csv", "out/members.csv")
 ```
 
-完整例子：`python examples/rack_demo.py`
+最小完整例：`python examples/frame_demo.py`（多层框架 + 次梁）
+应用例（某货架项目）：`python examples/rack_demo.py`
 真实规模回归：`python examples/lsp_regression.py`（13 跨 × 8 立柱线 × 30 层，9458 构件）
 
 ## 目录
 
+仓库根**就是包目录**，`__init__.py` 在这一层：
+
 ```
-strutkit/           ← 包本体（__init__.py 直接在这一层）
+strutkit/           ← 仓库根 = 包本体
 ├── geometry.py / model.py / diagnostics.py / export.py
-├── tests/          115 个测试（含 hypothesis 性质测试）
-├── examples/       三个示例：货架、多层框架（带次梁）、真实规模回归
-└── tools/          dxf2svg.py：DXF → 轴测图（PNG/SVG）
+├── docs/           入门教程：learn-strutkit.md
+├── tests/          117 个测试（含 hypothesis 性质测试）
+├── examples/       三个示例：多层框架（通用最小例）、货架项目（应用例）、真实规模回归
+├── tools/          dxf2svg.py：DXF → 轴测图（PNG/SVG）
+└── out/            示例与导出的生成物（gitignore，不入库）
 ```
 
-项目根目录（上一级）放资料：`货架体系文字描述.md`、`计算原则.md`、
-`规范对比_28576与39681计算条文.md`、`结构描述.md`、`牛腿库.lsp`（旧实现），
-以及 `.sisyph/notes/` 下的设计规划。
+生成物一律写到 `out/`，代码目录保持干净。货架项目的资料（`货架体系文字描述.md`、`牛腿库.lsp` 等）留在 `货架体系` 仓库，不属于本库。
 
-**库目录只放代码，不放生成物**。示例的输出（DXF、轴测图）统一写到项目根的 `out/`。
-
-命令都在**项目根**下执行：
+命令都在**仓库根**下执行：
 
 ```bash
-cd F:\工作区\货架体系
-python -m pytest strutkit/tests/ -q                            # 跑测试
-python strutkit/examples/rack_demo.py                          # 货架：大 X 背拉
-python strutkit/examples/frame_demo.py                         # 框架：主梁刚接 + 次梁铰接
-python strutkit/examples/lsp_regression.py                     # 真实规模回归（9458 构件）
-python strutkit/tools/dxf2svg.py out/frame.dxf                # DXF → 轴测图
+cd <仓库根>                                                    # 即 strutkit/ 这一层
+python -m pytest tests -q                                      # 跑测试
+python examples/frame_demo.py                                  # 通用最小例：多层框架 + 次梁
+python examples/rack_demo.py                                   # 应用例：货架（大 X 背拉）
+python examples/lsp_regression.py                              # 真实规模回归（9458 构件）
+python tools/dxf2svg.py out/frame.dxf                          # DXF → 轴测图
 ```
 
 ## 三条核心规则
@@ -140,10 +145,11 @@ python strutkit/tools/dxf2svg.py out/frame.dxf                # DXF → 轴测�
 网格点间距 = q · |d'|      （d' = 方向向量除以三轴 gcd）
 ```
 
-实测某背拉方向 `(600, 1033)` 的间距是 **119mm**，意味着「吸到线上最近的网格点」会挪动节点最多 60mm，不可用。所以斜杆只做容差判定，不做吸附。
+实测某斜杆方向 `(600, 1033)` 的间距是 **119mm**，意味着「吸到线上最近的网格点」会挪动节点最多 60mm，不可用。所以斜杆只做容差判定，不做吸附。
 
 ## 文档
 
-- 设计规划全书：`.sisyph/notes/2026-10-30-货架几何库-设计规划.md`
-- 体系构成与计算假定：`docs/货架体系文字描述.md`
-- 计算原则：`docs/计算原则.md`
+- 入门教程：`docs/learn-strutkit.md`
+- 设计规划全书：`.sisyph/notes/2026-10-30-strutkit-设计规划.md`（在 货架体系 仓库）
+- 一个真实项目的体系构成与计算假定：`货架体系文字描述.md`（项目根）
+- 计算原则：`计算原则.md`（项目根）

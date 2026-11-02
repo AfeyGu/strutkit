@@ -1,6 +1,6 @@
-"""验收测试 2：大 X 背拉跨越中间节点但不被打断
+"""验收测试 2：大 X 交叉斜撑跨越中间节点但不被打断
 
-坐标系约定：X = 排的纵向，Y = 进深（柱片宽度方向），**Z = 竖直（重力方向 -Z）**
+坐标系约定：X = 纵向（沿排列方向），Y = 横向（宽度方向），**Z = 竖直（重力方向 -Z）**
 
 这是整个设计里最容易做错的语义：一根只受拉斜杆跨 2 跨 2 层，
 中点正好撞在中间柱与梁的交点上（一个真节点），但它绝不能被打断——
@@ -12,7 +12,7 @@ from strutkit import Axis, Model
 
 def build(brace_split="none"):
     X  = Axis.spans([3000, 3000, 3000], axis="x")                  # 0, 3000, 6000, 9000
-    Y  = Axis.spans([800], axis="y", role=["前排", "后排"])           # 0, 800（进深）
+    Y  = Axis.spans([800], axis="y", role=["A", "B"])                # 0, 800（宽度方向）
     ZL = Axis.spans([2000, 2000], axis="z", include_base=False)     # 2000, 4000（标高）
     H  = 5000
 
@@ -31,7 +31,7 @@ def build(brace_split="none"):
         for y in Y:
             COL.add((x, y, 0), (x, y, H))
 
-    for x in X:                       # 柱片横撑：沿 Y 连接两根立柱，最低 z=200、最高 z=H
+    for x in X:                       # 横向横撑：沿 Y 连接两根立柱，最低 z=200、最高 z=H
         for z in (200, H):
             YBRACE.add((x, Y[0], z), (x, Y[1], z))
 
@@ -40,7 +40,7 @@ def build(brace_split="none"):
             for i in range(len(X) - 1):
                 BEAM.add((X[i], y, z), (X[i + 1], y, z))
 
-    x0, x1, yy = X[1], X[3], Y[1]     # 大 X 背拉：X–Z 竖直平面，y = 800
+    x0, x1, yy = X[1], X[3], Y[1]     # 大 X 交叉斜撑：X–Z 竖直平面，y = 800
     BRACE.add((x0, yy, 0), (x1, yy, ZL[-1]))
     BRACE.add((x0, yy, ZL[-1]), (x1, yy, 0))
     return m, COL, BEAM, YBRACE, BRACE
