@@ -30,9 +30,8 @@ import os
 import sys
 
 # 把项目根加入搜索路径，这样不用安装也能 import strutkit
-_PKG  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # strutkit/ 本身
-_ROOT = os.path.dirname(_PKG)                                        # 上一级，用于 import
-sys.path.insert(0, _ROOT)
+_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # 仓库根 = 包的上一级
+sys.path.insert(0, _ROOT)     # 装过包（pip install -e .）就不需要这行，留着保证不装也能跑
 
 from strutkit import Axis, Model
 
@@ -122,7 +121,7 @@ def main():
         print(f"  {name:<14} {len(grp.all()):>4} 段   端部 {sorted(ends, key=str)}")
 
     here = os.path.dirname(os.path.abspath(__file__))
-    out = os.path.join(_PKG, "out")       # 输出到仓库根的 out/（已 gitignore）
+    out = os.path.join(_ROOT, "out")      # 输出到仓库根的 out/（已 gitignore）
     os.makedirs(out, exist_ok=True)
     m.export_dxf(os.path.join(out, "frame.dxf"),
                  layers={"COL": 2, "MBX": 4, "MBY": 5, "SEC": 3})

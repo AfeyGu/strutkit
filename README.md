@@ -19,34 +19,46 @@ Member 构件 ────── 两端节点 + 自由属性 + 端部条件 + �
 
 **坐标约定**：X 纵向、Y 横向（宽度/进深）、**Z 竖直（重力方向 −Z）**。库本身与轴名无关，这个约定只影响脚本习惯和 DXF 在 CAD 里的朝向。
 
-## 怎么用（不用安装）
+## 安装
 
-`strutkit/` 目录本身就是包，把它的**上一级**加入搜索路径即可，三种方式任选：
+仓库是标准 Python 项目（`pyproject.toml` + `strutkit/` 包），两种用法挑一个。
 
-**① 脚本里两行（最省事）**
+### ① 装进当前 Python 环境（推荐）
+
+```bash
+cd <仓库根>
+pip install -e .
+```
+
+之后**任何目录**都能 `import strutkit`。`-e`（editable）只在 site-packages 里放一个指向本仓库的指针，不复制源码——所以改了代码立刻生效，不用重装。
+
+**卸载：**
+
+```bash
+pip uninstall strutkit
+```
+
+先卸载、再删仓库目录。反过来（先删目录）会在 site-packages 里留下悬空指针，之后 `import strutkit` 报的错会莫名其妙。
+
+> 想要标准 R2000 DXF 和 PNG 预览，一次装好可选依赖：`pip install -e ".[dxf,plot]"`（即 `ezdxf` + `Pillow`；不装也能跑，DXF 自动回退到手写 R12，`dxf2svg` 只出 SVG）。
+
+### ② 不安装，用路径（零安装）
+
+把**仓库根**（`strutkit/` 这一层）加进搜索路径即可，三种写法任选：
 
 ```python
 import sys
-sys.path.insert(0, r"<strutkit 的上一级目录>")     # 指向 strutkit 的上一级
-
+sys.path.insert(0, r"<仓库根>")        # 指向 strutkit/ 这一层
 from strutkit import Axis, Model
 ```
 
-**② 环境变量 `PYTHONPATH`（一次配置，所有项目生效）**
-
 ```cmd
-set PYTHONPATH=<strutkit 的上一级目录>          :: 当前窗口临时生效
+set PYTHONPATH=<仓库根>               :: 当前窗口临时生效，或写进系统环境变量
 ```
-或者加进「系统属性 → 环境变量 → 用户变量」长期生效。
 
-> 本仓库根目录当前名为 `货架体系`（历史原因：同一目录里还放着货架项目的资料）。路径按实际位置填，库本身与这个目录名无关。
+好处是换机器拷目录就能用、没有安装残留；代价是每个脚本开头多两行。
 
-**③ 想装进 Python 环境（可选）**
-
-需要自己补一个 `pyproject.toml`。
-
-> 为什么不做成 pip 包：这是自用库，代码会持续改。`sys.path` / `PYTHONPATH` 方式改完立即生效、换机器拷目录即可，没有安装卸载的负担。
-
+## 快速开始
 ## 快速开始
 
 ```python
@@ -82,13 +94,16 @@ m.export_fea("out/nodes.csv", "out/members.csv")
 仓库根**就是包目录**，`__init__.py` 在这一层：
 
 ```
-strutkit/           ← 仓库根 = 包本体
-├── geometry.py / model.py / diagnostics.py / export.py
-├── docs/           入门教程：learn-strutkit.md
-├── tests/          117 个测试（含 hypothesis 性质测试）
-├── examples/       三个示例：多层框架（通用最小例）、货架项目（应用例）、真实规模回归
-├── tools/          dxf2svg.py：DXF → 轴测图（PNG/SVG）
-└── out/            示例与导出的生成物（gitignore，不入库）
+strutkit/                ← 仓库根
+├── pyproject.toml       安装与工具配置
+├── README.md
+├── strutkit/            ← 包本体
+│   ├── __init__.py / geometry.py / model.py / diagnostics.py / export.py
+│   └── tools/           dxf2svg.py：DXF → 轴测图（PNG/SVG）
+├── docs/                入门教程：learn-strutkit.md
+├── tests/               117 个测试（含 hypothesis 性质测试）
+├── examples/            三个示例：多层框架（通用最小例）、货架项目（应用例）、真实规模回归
+└── out/                 示例与导出的生成物（gitignore，不入库）
 ```
 
 生成物一律写到 `out/`，代码目录保持干净。货架项目的资料（`货架体系文字描述.md`、`牛腿库.lsp` 等）留在 `货架体系` 仓库，不属于本库。
@@ -96,12 +111,13 @@ strutkit/           ← 仓库根 = 包本体
 命令都在**仓库根**下执行：
 
 ```bash
-cd <仓库根>                                                    # 即 strutkit/ 这一层
+cd <仓库根>
+pip install -e .                                               # 可选：装进当前环境
 python -m pytest tests -q                                      # 跑测试
 python examples/frame_demo.py                                  # 通用最小例：多层框架 + 次梁
 python examples/rack_demo.py                                   # 应用例：货架（大 X 背拉）
 python examples/lsp_regression.py                              # 真实规模回归（9458 构件）
-python tools/dxf2svg.py out/frame.dxf                          # DXF → 轴测图
+python -m strutkit.tools.dxf2svg out/frame.dxf                 # DXF → 轴测图
 ```
 
 ## 三条核心规则

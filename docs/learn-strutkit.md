@@ -744,7 +744,7 @@ mbs = COL.add(p, q)     # 被旧节点切成 3 段 → list[Member]，长度 3
 ② 定组      Model.define(name, split, attrs, ends, split_ends)   一类构件的规矩
 ③ 放杆      Group.add / add_chain / add_X / add_zigzag / add_pairs
 ④ 体检      Model.report()                  每加完一批就看，不要只看一次
-⑤ 出口      export_dxf / export_fea / tools/dxf2svg.py
+⑤ 出口      export_dxf / export_fea / strutkit.tools.dxf2svg
 ```
 
 **点阵（`PointSet`）不是独立的一步，它是 ① 和 ③ 之间的中间产物**，作用有三个：
@@ -794,7 +794,7 @@ for z in Z:                          # 点阵版：同样 8 根
 
 贯穿示例：X 向两跨（0 / 6000 / 12000）、Y 向一跨（0 / 6000）、两层（±0 / 4000 / 7500）。构件四类：柱、X 向主梁、Y 向主梁、次梁。
 
-> 前置：把 `strutkit` 的**上一级**目录加进 `sys.path`（见 `../README.md`「怎么用」），下面只写 `from strutkit import ...`。
+> 前置：先按 `../README.md`「安装」二选一——`pip install -e .`（推荐），或把**仓库根**加进 `sys.path`。搞定后下面只写 `from strutkit import ...`。
 
 ### Step 1 造轴
 
@@ -1003,11 +1003,11 @@ CSV 用 `utf-8-sig` 编码，Excel 直接双击不乱码。
 **看图**：
 
 ```bash
-python tools/dxf2svg.py out/frame.dxf                        # 出 out/frame_iso.png
-python tools/dxf2svg.py out/frame.dxf --views front,side,top,iso
-python tools/dxf2svg.py out/frame.dxf --only-y 0             # 只看 y=0 这一片
+python -m strutkit.tools.dxf2svg out/frame.dxf                        # 出 out/frame_iso.png
+python -m strutkit.tools.dxf2svg out/frame.dxf --views front,side,top,iso
+python -m strutkit.tools.dxf2svg out/frame.dxf --only-y 0             # 只看 y=0 这一片
 
-（命令在**仓库根**执行，即 `strutkit/` 这一层。）
+（装了包就在任何目录都能跑；没装就在**仓库根**执行。）
 ```
 
 ---
