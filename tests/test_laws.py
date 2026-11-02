@@ -16,7 +16,8 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from strutkit import Axis, ConflictError, Model, PointSet, get_quantum, set_quantum
+from strutkit import (Axis, ConflictError, Model, PointSet, get_quantum,
+                      set_quantum, step_um)
 
 # ─────────────────────────────────────────────────────────────
 # 生成器
@@ -88,9 +89,9 @@ segments = st.lists(
          and _distinct_spans(ss))                     # 去掉共线重叠
 
 
-def build(segs, split="all") -> Model:
+def build(segs, split="all", cell_mm: float | None = 1000.0) -> Model:
     """按给定顺序建模型。split 固定，避免生成器同时扰动两处。"""
-    m = Model()
+    m = Model(cell_mm=cell_mm)
     defined: set[str] = set()
     for group, p, q in segs:
         if group not in defined:
@@ -218,15 +219,31 @@ def _components(m: Model) -> int:
 
 @settings(max_examples=80, deadline=None)
 @given(segs=segments)
-def test_split_creates_no_new_nodes(segs):
-    """打断只搬运已有节点，不造新点。
+def test_all_nodes_stay_on_quantum_grid(segs):
+    """打断可以造新点（X 形交叉点），但所有坐标必须仍在量化网格上。
 
-    切点必须是模型里已经存在的节点；若打断能凭空造点，
-    坐标就不再只由用户输入决定，量化体系也就不封闭了。
+    旧不变量是「打断只搬运已有节点」；交叉打断刻意放宽了它——两根杆的中点
+    相交处本来没有节点，却必须造一个出来。放宽的代价封在这里：新点只能落在
+    量化网格上，否则坐标就不再完全由「用户输入 + 量子」决定。
     """
-    a = build(segs, split="all")
-    b = build(segs, split="none")
-    assert {n.xyz for n in a.nodes.values()} == {n.xyz for n in b.nodes.values()}
+    m = build(segs, split="all")
+    step = step_um()
+    assert all(c % step == 0 for n in m.nodes.values() for c in n.xyz)
+
+
+@settings(max_examples=60, deadline=None)
+@given(segs=segments)
+def test_cell_size_never_changes_result(segs):
+    """空间索引的格子大小只影响速度，绝不能影响结果。
+
+    索引是「宁可多登记，不可漏登记」的保守结构：漏登记会让该打断的构件
+    悄悄连不上，而报告里看不出来。这条测试是唯一能抓住那类 bug 的手段——
+    一旦漏登记，不同格子大小建出的模型就会不一致。
+    """
+    fine = build(segs, cell_mm=700.0)
+    coarse = build(segs, cell_mm=7000.0)
+    off = build(segs, cell_mm=None)                 # 不走索引，全表扫
+    assert signature(fine) == signature(coarse) == signature(off)
 
 
 @settings(max_examples=80, deadline=None)

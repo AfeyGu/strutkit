@@ -70,7 +70,16 @@ def _se_pair(split_ends) -> tuple[Any, Any]:
 class Model:
     """构件容器。只有 4 个入口：define / member / node / remove。"""
 
-    def __init__(self, *, default_split_ends=None):
+    def __init__(self, *, default_split_ends=None, cell_mm: float | None = 1000.0):
+        if cell_mm is not None and cell_mm <= 0:
+            raise ValueError(f"cell_mm 必须为正数或 None，收到 {cell_mm!r}")
+        # 空间索引的格子边长（μm）。None = 不建索引，退化为全表扫描。
+        # 它只影响速度，绝不影响结果；下限取 10 个量化步长，避免格子爆炸。
+        self._cell_um = None if cell_mm is None else max(
+            int(round(cell_mm * 1000)), 10 * step_um())
+        self._mgrid: dict[tuple[int, int, int], set[int]] = {}   # 格子 → 构件
+        self._ngrid: dict[tuple[int, int, int], set[int]] = {}   # 格子 → 节点
+        self._by_group: dict[str | None, set[int]] = {}          # 组名 → 构件
         self._nodes: dict[int, Node] = {}
         self._node_at: dict[tuple[int, int, int], int] = {}
         self._members: dict[int, Member] = {}
@@ -82,6 +91,8 @@ class Model:
         self._poskey: dict[tuple, int] = {}
         # 显式节点声明的来源组（as_group），参与 split 判断
         self._virtual: dict[int, str] = {}
+        # X 形交叉打断产生的节点数（报告里如实列出）
+        self._xsplit = 0
 
     # ── 定义组 ────────────────────────────────────────────
 
@@ -111,16 +122,94 @@ class Model:
     # ── 节点 ──────────────────────────────────────────────
 
     def _node_id(self, p: Sequence[float]) -> int:
-        xyz = tuple(to_um(c) for c in p)
-        if len(xyz) != 3:
-            raise ValueError(f"坐标必须是三维，收到 {len(xyz)} 维")
+        if len(p) != 3:
+            raise ValueError(f"坐标必须是三维，收到 {len(p)} 维")
+        return self._node_id_um(tuple(to_um(c) for c in p))
+
+    def _node_id_um(self, xyz: tuple[int, int, int]) -> int:
+        """已知是网格整点（μm）时直接建节点，跳过 mm→μm 换算。
+
+        几何计算（如交叉点）本来就在 μm 整数上，不能再走一次 to_um——那会
+        把坐标放大 1000 倍。
+        """
         nid = self._node_at.get(xyz)
         if nid is None:
             nid = self._next_node
             self._next_node += 1
             self._nodes[nid] = Node(id=nid, xyz=xyz)
             self._node_at[xyz] = nid
+            if self._cell_um is not None:
+                c = self._cell_um
+                self._ngrid.setdefault(
+                    (xyz[0] // c, xyz[1] // c, xyz[2] // c), set()).add(nid)
         return nid
+
+    # ── 空间索引 ──────────────────────────────────────────
+    #
+    # 均匀网格：构件登记到它包围盒覆盖的格子，节点登记到它所在的那一个格子。
+    # 查询时只取相关格子里的对象，把「全表扫」降为「只看附近几个」。
+    # 宁可多登记（包围盒保守外扩），绝不漏登记——漏登记会让该打断的构件
+    # 悄悄连不上，而报告里看不出来。
+
+    def _cells(self, lo, hi):
+        """包围盒 [lo, hi] 覆盖的格子清单"""
+        c = self._cell_um
+        x0, y0, z0 = lo[0] // c, lo[1] // c, lo[2] // c
+        x1, y1, z1 = hi[0] // c, hi[1] // c, hi[2] // c
+        return [(x, y, z)
+                for x in range(x0, x1 + 1)
+                for y in range(y0, y1 + 1)
+                for z in range(z0, z1 + 1)]
+
+    def _member_cells(self, mb: Member):
+        p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
+        lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
+        hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
+        return self._cells(lo, hi)
+
+    def _index_member(self, mb: Member) -> None:
+        if self._cell_um is None:
+            return
+        for cell in self._member_cells(mb):
+            self._mgrid.setdefault(cell, set()).add(mb.id)
+        self._by_group.setdefault(mb.group, set()).add(mb.id)
+
+    def _unindex_member(self, mb: Member) -> None:
+        if self._cell_um is None:
+            return
+        for cell in self._member_cells(mb):
+            bucket = self._mgrid.get(cell)
+            if bucket is not None:
+                bucket.discard(mb.id)
+                if not bucket:
+                    del self._mgrid[cell]
+        by = self._by_group.get(mb.group)
+        if by is not None:
+            by.discard(mb.id)
+            if not by:
+                del self._by_group[mb.group]
+
+    def _candidate_members(self, lo, hi, pad: int = 0) -> list[Member]:
+        """与 [lo, hi] 外扩 pad 后相交的构件。索引关闭时退化为全部构件。"""
+        if self._cell_um is None:
+            return list(self._members.values())
+        a = (lo[0] - pad, lo[1] - pad, lo[2] - pad)
+        b = (hi[0] + pad, hi[1] + pad, hi[2] + pad)
+        hits: set[int] = set()
+        for cell in self._cells(a, b):
+            hits |= self._mgrid.get(cell, set())
+        return [self._members[mid] for mid in sorted(hits)]
+
+    def _candidate_nodes(self, lo, hi, pad: int = 0) -> list[int]:
+        """落在 [lo, hi] 外扩 pad 范围内的节点。索引关闭时退化为全部节点。"""
+        if self._cell_um is None:
+            return list(self._nodes)
+        a = (lo[0] - pad, lo[1] - pad, lo[2] - pad)
+        b = (hi[0] + pad, hi[1] + pad, hi[2] + pad)
+        hits: set[int] = set()
+        for cell in self._cells(a, b):
+            hits |= self._ngrid.get(cell, set())
+        return sorted(hits)
 
     def node(self, xyz: Sequence[float], *, attrs: dict | None = None,
              as_group: str | None = None) -> Node:
@@ -171,6 +260,7 @@ class Model:
         self._next_member += 1
         self._members[mb.id] = mb
         self._poskey[key] = mb.id
+        self._index_member(mb)
         self._nodes[ni].sources.add(mb.id)
         self._nodes[nj].sources.add(mb.id)
 
@@ -178,6 +268,13 @@ class Model:
         try:
             self._split_others_at(ni, skip=mb.id)
             self._split_others_at(nj, skip=mb.id)
+            for xyz, other in self._crossing_hits(mb):    # ③ X 形：双方都放行才断
+                nid = self._node_id_um(xyz)
+                self._xsplit += 1
+                # 交点就落在这根 other 上，直接切它，不必再扫一遍全模型
+                if (other.id in self._members and
+                        nid not in (other.i, other.j)):
+                    self._split_member(other, [nid])
             produced = self._split_self(mb)
         except ConflictError:
             # 新构件与已有构件重合（同组共线重叠 = 重复杆件）。
@@ -185,6 +282,7 @@ class Model:
             # 其他构件此前发生的打断切点都是真实节点，属于有效打断，予以保留。
             self._members.pop(mb.id, None)
             self._poskey.pop(key, None)
+            self._unindex_member(mb)
             self._nodes[ni].sources.discard(mb.id)
             self._nodes[nj].sources.discard(mb.id)
             raise
@@ -230,8 +328,12 @@ class Model:
         grp = self._groups.get(group_name)
         return grp.split if grp else "none"
 
-    def _allows(self, mb: Member, nid: int) -> bool:
-        """节点 nid 是否允许打断 mb（依据 mb 所属组的 split 策略）"""
+    def _allows(self, mb: Member, nid: int, src_group: str | None = None) -> bool:
+        """节点 nid 是否允许打断 mb（依据 mb 所属组的 split 策略）。
+
+        src_group：这个节点等效于由哪一组产生。X 形交叉产生的节点没有主人，
+        必须由调用方说明它来自哪一组，否则白名单无从判断。
+        """
         policy = self._group_split(mb.group)
         if policy == "none":
             return False
@@ -250,13 +352,136 @@ class Model:
                 src_groups.add(other.group)
         if nid in self._virtual:
             src_groups.add(self._virtual[nid])
+        if src_group is not None:
+            src_groups.add(src_group)
         return bool(src_groups & allowed)
 
-    def _split_others_at(self, nid: int, skip: int | None):
-        """新节点 nid 可能切开已有构件"""
+    # ── X 形交叉打断 ──────────────────────────────────────
+
+    @staticmethod
+    def _policy_allows_group(policy, gname: str | None) -> bool:
+        """该 split 策略是否放行「gname 组的构件穿过我」"""
+        if not gname or policy is None or policy == "none":
+            return False
+        if policy == "all":
+            return True
+        if isinstance(policy, tuple):        # 坐标白名单只认点，不参与交叉
+            return False
+        return gname in policy
+
+    def _allowed_groups(self, group_name: str | None) -> set[str]:
+        """本组的 split 放行哪些组（仅用于 X 形交叉的候选收窄）"""
+        policy = self._group_split(group_name)
+        if policy == "all":
+            return set(self._groups)               # 任何组都放行
+        if policy is None or policy == "none" or isinstance(policy, tuple):
+            return set()
+        return set(policy)
+
+    def _xsplit_ok(self, a: Member, b: Member) -> bool:
+        """X 形打断的门禁：双方都放行对方，才在交点处断开。
+
+        只放行一边会造成「一边断了、另一边没断」——梁断成两段却仍挂在空中，
+        等于凭空制造两个断点。所以交叉打断必须双向。
+        """
+        return (self._policy_allows_group(self._group_split(a.group), b.group)
+                and self._policy_allows_group(self._group_split(b.group), a.group))
+
+    @staticmethod
+    def _on_segment_exact(p, q, n) -> bool:
+        """点 n 是否严格落在 p→q 内部（零容差，整数运算）"""
+        dx, dy, dz = q[0] - p[0], q[1] - p[1], q[2] - p[2]
+        vx, vy, vz = n[0] - p[0], n[1] - p[1], n[2] - p[2]
+        cx = dy * vz - dz * vy
+        cy = dz * vx - dx * vz
+        cz = dx * vy - dy * vx
+        if cx or cy or cz:
+            return False
+        dv = dx * vx + dy * vy + dz * vz
+        dd = dx * dx + dy * dy + dz * dz
+        return 0 < dv < dd
+
+    @staticmethod
+    def _closest_common_point(p, q, r, s):
+        """两线段的最近点对；若它们是同一个网格整点，返回该点，否则 None。
+
+        浮点只用来解参数，返回前必须过 _on_segment_exact 的整数校验，
+        所以不会把「异面差一点点」误判成相交。
+        """
+        d1 = (q[0] - p[0], q[1] - p[1], q[2] - p[2])
+        d2 = (s[0] - r[0], s[1] - r[1], s[2] - r[2])
+        w = (p[0] - r[0], p[1] - r[1], p[2] - r[2])
+        a = d1[0] ** 2 + d1[1] ** 2 + d1[2] ** 2
+        e = d2[0] ** 2 + d2[1] ** 2 + d2[2] ** 2
+        if a == 0 or e == 0:
+            return None
+        b = d1[0] * d2[0] + d1[1] * d2[1] + d1[2] * d2[2]
+        c = d1[0] * w[0] + d1[1] * w[1] + d1[2] * w[2]
+        f = d2[0] * w[0] + d2[1] * w[1] + d2[2] * w[2]
+        den = a * e - b * b
+        if den == 0:                 # 平行或共线：交给「端点在杆上」的既有逻辑
+            return None
+        t1 = (b * f - c * e) / den
+        t1 = 0.0 if t1 < 0 else (1.0 if t1 > 1 else t1)
+        t2 = (b * t1 + f) / e
+        if t2 < 0:                   # 夹紧后重算另一端，保证拿到的是最近点对
+            t2 = 0.0
+            u = -c / a
+            t1 = 0.0 if u < 0 else (1.0 if u > 1 else u)
+        elif t2 > 1:
+            t2 = 1.0
+            u = (b - c) / a
+            t1 = 0.0 if u < 0 else (1.0 if u > 1 else u)
+        c1 = (p[0] + d1[0] * t1, p[1] + d1[1] * t1, p[2] + d1[2] * t1)
+        c2 = (r[0] + d2[0] * t2, r[1] + d2[1] * t2, r[2] + d2[2] * t2)
+        i1 = tuple(int(round(v)) for v in c1)
+        i2 = tuple(int(round(v)) for v in c2)
+        return i1 if i1 == i2 else None
+
+    def _crossing_hits(self, mb: Member) -> list[tuple[tuple[int, int, int], Member]]:
+        """本构件与「双方都放行」的构件相交处的网格点（X 形）。
+
+        T 形（端点落在对方身上）由 _split_self / _split_others_at 负责，
+        这里只找「交点处两边都没有端点」的情形。
+        """
+        if self._group_split(mb.group) == "none":
+            return []
+        p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
+        lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
+        hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
+        out: list[tuple[tuple[int, int, int], Member]] = []
+        allowed = self._allowed_groups(mb.group)
+        for other in self._candidate_members(lo, hi):
+            if other.id == mb.id:
+                continue
+            if other.i in (mb.i, mb.j) or other.j in (mb.i, mb.j):
+                continue                      # 已共享端点，不算交叉
+            if other.group not in allowed:
+                continue                      # 索引已按空间收窄，这里再按组收窄
+            if not self._xsplit_ok(mb, other):
+                continue
+            r, s = self._nodes[other.i].xyz, self._nodes[other.j].xyz
+            if (max(r[0], s[0]) < lo[0] or min(r[0], s[0]) > hi[0] or
+                    max(r[1], s[1]) < lo[1] or min(r[1], s[1]) > hi[1] or
+                    max(r[2], s[2]) < lo[2] or min(r[2], s[2]) > hi[2]):
+                continue                      # 包围盒不相交
+            hit = self._closest_common_point(p, q, r, s)
+            if hit is None:
+                continue
+            if not (self._on_segment_exact(p, q, hit) and
+                    self._on_segment_exact(r, s, hit)):
+                continue                      # 不在两段上（异面），放弃
+            step = step_um()
+            if any(v % step for v in hit):
+                continue                      # 交点不在量化网格上，放弃
+            out.append((hit, other))
+        return out
+
+    def _split_others_at(self, nid: int, skip: int | None, src_group: str | None = None):
+        """新节点 nid 可能切开已有构件（src_group 见 _allows）"""
         node = self._nodes[nid]
         tol = step_um()          # 容差会让"差一点点"的节点也落在杆上，包围盒同步外扩
-        for mb in list(self._members.values()):
+        for mb in self._candidate_members(node.xyz, node.xyz, pad=tol):
             if mb.id == skip:
                 continue
             if mb.i == nid or mb.j == nid:
@@ -269,7 +494,7 @@ class Model:
                 continue
             if not self._on_segment(p, q, node.xyz):
                 continue
-            if not self._allows(mb, nid):
+            if not self._allows(mb, nid, src_group):
                 continue
             self._split_member(mb, [nid])
 
@@ -279,16 +504,20 @@ class Model:
             return [mb]  # 已被切过
         p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
         tol = step_um()          # 同 _split_others_at：包围盒随容差外扩
+        # 注意：端点是有方向的，查询必须用 bbox（min/max），不能直接传 p、q
+        lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
+        hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
         cuts = []
-        for node in self._nodes.values():
-            if node.id in (mb.i, mb.j):
+        for nid in self._candidate_nodes(lo, hi, pad=tol):
+            if nid in (mb.i, mb.j):
                 continue
+            node = self._nodes[nid]
             if not (min(p[0], q[0]) - tol <= node.xyz[0] <= max(p[0], q[0]) + tol and
                     min(p[1], q[1]) - tol <= node.xyz[1] <= max(p[1], q[1]) + tol and
                     min(p[2], q[2]) - tol <= node.xyz[2] <= max(p[2], q[2]) + tol):
                 continue
-            if self._on_segment(p, q, node.xyz) and self._allows(mb, node.id):
-                cuts.append(node.id)
+            if self._on_segment(p, q, node.xyz) and self._allows(mb, nid):
+                cuts.append(nid)
         if not cuts:
             return [mb]
         return self._split_member(mb, cuts)
@@ -326,6 +555,7 @@ class Model:
                 )
 
         # 注销原构件
+        self._unindex_member(mb)
         del self._members[mb.id]
         self._poskey.pop((mb.group, min(mb.i, mb.j), max(mb.i, mb.j)), None)
         for nid in (mb.i, mb.j):
@@ -348,6 +578,7 @@ class Model:
             )
             self._next_member += 1
             self._members[seg.id] = seg
+            self._index_member(seg)
             self._poskey[(seg.group, min(i0, j0), max(i0, j0))] = seg.id
             self._nodes[i0].sources.add(seg.id)
             self._nodes[j0].sources.add(seg.id)
@@ -400,6 +631,7 @@ class Model:
     # ── 删除与合并 ────────────────────────────────────────
 
     def _drop(self, mb: Member) -> None:
+        self._unindex_member(mb)
         self._members.pop(mb.id, None)
         self._poskey.pop((mb.group, min(mb.i, mb.j), max(mb.i, mb.j)), None)
         self._nodes[mb.i].sources.discard(mb.id)
@@ -500,6 +732,7 @@ class Model:
                         attrs=keep, ends=new_ends, origin=origin)
         self._next_member += 1
         self._members[merged.id] = merged
+        self._index_member(merged)
         self._poskey[(group, min(new_i, new_j), max(new_i, new_j))] = merged.id
         self._nodes[new_i].sources.add(merged.id)
         self._nodes[new_j].sources.add(merged.id)
