@@ -88,9 +88,9 @@ segments = st.lists(
          and _distinct_spans(ss))                     # 去掉共线重叠
 
 
-def build(segs, split="all") -> Model:
+def build(segs, split="all", cell_mm: float | None = 1000.0) -> Model:
     """按给定顺序建模型。split 固定，避免生成器同时扰动两处。"""
-    m = Model()
+    m = Model(cell_mm=cell_mm)
     defined: set[str] = set()
     for group, p, q in segs:
         if group not in defined:
@@ -227,6 +227,21 @@ def test_split_creates_no_new_nodes(segs):
     a = build(segs, split="all")
     b = build(segs, split="none")
     assert {n.xyz for n in a.nodes.values()} == {n.xyz for n in b.nodes.values()}
+
+
+@settings(max_examples=60, deadline=None)
+@given(segs=segments)
+def test_cell_size_never_changes_result(segs):
+    """空间索引的格子大小只影响速度，绝不能影响结果。
+
+    索引是「宁可多登记，不可漏登记」的保守结构：漏登记会让该打断的构件
+    悄悄连不上，而报告里看不出来。这条测试是唯一能抓住那类 bug 的手段——
+    一旦漏登记，不同格子大小建出的模型就会不一致。
+    """
+    fine = build(segs, cell_mm=700.0)
+    coarse = build(segs, cell_mm=7000.0)
+    off = build(segs, cell_mm=None)                 # 不走索引，全表扫
+    assert signature(fine) == signature(coarse) == signature(off)
 
 
 @settings(max_examples=80, deadline=None)

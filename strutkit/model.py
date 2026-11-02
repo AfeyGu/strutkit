@@ -70,7 +70,16 @@ def _se_pair(split_ends) -> tuple[Any, Any]:
 class Model:
     """构件容器。只有 4 个入口：define / member / node / remove。"""
 
-    def __init__(self, *, default_split_ends=None):
+    def __init__(self, *, default_split_ends=None, cell_mm: float | None = 1000.0):
+        if cell_mm is not None and cell_mm <= 0:
+            raise ValueError(f"cell_mm 必须为正数或 None，收到 {cell_mm!r}")
+        # 空间索引的格子边长（μm）。None = 不建索引，退化为全表扫描。
+        # 它只影响速度，绝不影响结果；下限取 10 个量化步长，避免格子爆炸。
+        self._cell_um = None if cell_mm is None else max(
+            int(round(cell_mm * 1000)), 10 * step_um())
+        self._mgrid: dict[tuple[int, int, int], set[int]] = {}   # 格子 → 构件
+        self._ngrid: dict[tuple[int, int, int], set[int]] = {}   # 格子 → 节点
+        self._by_group: dict[str | None, set[int]] = {}          # 组名 → 构件
         self._nodes: dict[int, Node] = {}
         self._node_at: dict[tuple[int, int, int], int] = {}
         self._members: dict[int, Member] = {}
@@ -111,16 +120,94 @@ class Model:
     # ── 节点 ──────────────────────────────────────────────
 
     def _node_id(self, p: Sequence[float]) -> int:
-        xyz = tuple(to_um(c) for c in p)
-        if len(xyz) != 3:
-            raise ValueError(f"坐标必须是三维，收到 {len(xyz)} 维")
+        if len(p) != 3:
+            raise ValueError(f"坐标必须是三维，收到 {len(p)} 维")
+        return self._node_id_um(tuple(to_um(c) for c in p))
+
+    def _node_id_um(self, xyz: tuple[int, int, int]) -> int:
+        """已知是网格整点（μm）时直接建节点，跳过 mm→μm 换算。
+
+        几何计算（如交叉点）本来就在 μm 整数上，不能再走一次 to_um——那会
+        把坐标放大 1000 倍。
+        """
         nid = self._node_at.get(xyz)
         if nid is None:
             nid = self._next_node
             self._next_node += 1
             self._nodes[nid] = Node(id=nid, xyz=xyz)
             self._node_at[xyz] = nid
+            if self._cell_um is not None:
+                c = self._cell_um
+                self._ngrid.setdefault(
+                    (xyz[0] // c, xyz[1] // c, xyz[2] // c), set()).add(nid)
         return nid
+
+    # ── 空间索引 ──────────────────────────────────────────
+    #
+    # 均匀网格：构件登记到它包围盒覆盖的格子，节点登记到它所在的那一个格子。
+    # 查询时只取相关格子里的对象，把「全表扫」降为「只看附近几个」。
+    # 宁可多登记（包围盒保守外扩），绝不漏登记——漏登记会让该打断的构件
+    # 悄悄连不上，而报告里看不出来。
+
+    def _cells(self, lo, hi):
+        """包围盒 [lo, hi] 覆盖的格子清单"""
+        c = self._cell_um
+        x0, y0, z0 = lo[0] // c, lo[1] // c, lo[2] // c
+        x1, y1, z1 = hi[0] // c, hi[1] // c, hi[2] // c
+        return [(x, y, z)
+                for x in range(x0, x1 + 1)
+                for y in range(y0, y1 + 1)
+                for z in range(z0, z1 + 1)]
+
+    def _member_cells(self, mb: Member):
+        p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
+        lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
+        hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
+        return self._cells(lo, hi)
+
+    def _index_member(self, mb: Member) -> None:
+        if self._cell_um is None:
+            return
+        for cell in self._member_cells(mb):
+            self._mgrid.setdefault(cell, set()).add(mb.id)
+        self._by_group.setdefault(mb.group, set()).add(mb.id)
+
+    def _unindex_member(self, mb: Member) -> None:
+        if self._cell_um is None:
+            return
+        for cell in self._member_cells(mb):
+            bucket = self._mgrid.get(cell)
+            if bucket is not None:
+                bucket.discard(mb.id)
+                if not bucket:
+                    del self._mgrid[cell]
+        by = self._by_group.get(mb.group)
+        if by is not None:
+            by.discard(mb.id)
+            if not by:
+                del self._by_group[mb.group]
+
+    def _candidate_members(self, lo, hi, pad: int = 0) -> list[Member]:
+        """与 [lo, hi] 外扩 pad 后相交的构件。索引关闭时退化为全部构件。"""
+        if self._cell_um is None:
+            return list(self._members.values())
+        a = (lo[0] - pad, lo[1] - pad, lo[2] - pad)
+        b = (hi[0] + pad, hi[1] + pad, hi[2] + pad)
+        hits: set[int] = set()
+        for cell in self._cells(a, b):
+            hits |= self._mgrid.get(cell, set())
+        return [self._members[mid] for mid in sorted(hits)]
+
+    def _candidate_nodes(self, lo, hi, pad: int = 0) -> list[int]:
+        """落在 [lo, hi] 外扩 pad 范围内的节点。索引关闭时退化为全部节点。"""
+        if self._cell_um is None:
+            return list(self._nodes)
+        a = (lo[0] - pad, lo[1] - pad, lo[2] - pad)
+        b = (hi[0] + pad, hi[1] + pad, hi[2] + pad)
+        hits: set[int] = set()
+        for cell in self._cells(a, b):
+            hits |= self._ngrid.get(cell, set())
+        return sorted(hits)
 
     def node(self, xyz: Sequence[float], *, attrs: dict | None = None,
              as_group: str | None = None) -> Node:
@@ -171,6 +258,7 @@ class Model:
         self._next_member += 1
         self._members[mb.id] = mb
         self._poskey[key] = mb.id
+        self._index_member(mb)
         self._nodes[ni].sources.add(mb.id)
         self._nodes[nj].sources.add(mb.id)
 
@@ -185,6 +273,7 @@ class Model:
             # 其他构件此前发生的打断切点都是真实节点，属于有效打断，予以保留。
             self._members.pop(mb.id, None)
             self._poskey.pop(key, None)
+            self._unindex_member(mb)
             self._nodes[ni].sources.discard(mb.id)
             self._nodes[nj].sources.discard(mb.id)
             raise
@@ -256,7 +345,7 @@ class Model:
         """新节点 nid 可能切开已有构件"""
         node = self._nodes[nid]
         tol = step_um()          # 容差会让"差一点点"的节点也落在杆上，包围盒同步外扩
-        for mb in list(self._members.values()):
+        for mb in self._candidate_members(node.xyz, node.xyz, pad=tol):
             if mb.id == skip:
                 continue
             if mb.i == nid or mb.j == nid:
@@ -279,16 +368,20 @@ class Model:
             return [mb]  # 已被切过
         p, q = self._nodes[mb.i].xyz, self._nodes[mb.j].xyz
         tol = step_um()          # 同 _split_others_at：包围盒随容差外扩
+        # 注意：端点是有方向的，查询必须用 bbox（min/max），不能直接传 p、q
+        lo = (min(p[0], q[0]), min(p[1], q[1]), min(p[2], q[2]))
+        hi = (max(p[0], q[0]), max(p[1], q[1]), max(p[2], q[2]))
         cuts = []
-        for node in self._nodes.values():
-            if node.id in (mb.i, mb.j):
+        for nid in self._candidate_nodes(lo, hi, pad=tol):
+            if nid in (mb.i, mb.j):
                 continue
+            node = self._nodes[nid]
             if not (min(p[0], q[0]) - tol <= node.xyz[0] <= max(p[0], q[0]) + tol and
                     min(p[1], q[1]) - tol <= node.xyz[1] <= max(p[1], q[1]) + tol and
                     min(p[2], q[2]) - tol <= node.xyz[2] <= max(p[2], q[2]) + tol):
                 continue
-            if self._on_segment(p, q, node.xyz) and self._allows(mb, node.id):
-                cuts.append(node.id)
+            if self._on_segment(p, q, node.xyz) and self._allows(mb, nid):
+                cuts.append(nid)
         if not cuts:
             return [mb]
         return self._split_member(mb, cuts)
@@ -326,6 +419,7 @@ class Model:
                 )
 
         # 注销原构件
+        self._unindex_member(mb)
         del self._members[mb.id]
         self._poskey.pop((mb.group, min(mb.i, mb.j), max(mb.i, mb.j)), None)
         for nid in (mb.i, mb.j):
@@ -348,6 +442,7 @@ class Model:
             )
             self._next_member += 1
             self._members[seg.id] = seg
+            self._index_member(seg)
             self._poskey[(seg.group, min(i0, j0), max(i0, j0))] = seg.id
             self._nodes[i0].sources.add(seg.id)
             self._nodes[j0].sources.add(seg.id)
@@ -400,6 +495,7 @@ class Model:
     # ── 删除与合并 ────────────────────────────────────────
 
     def _drop(self, mb: Member) -> None:
+        self._unindex_member(mb)
         self._members.pop(mb.id, None)
         self._poskey.pop((mb.group, min(mb.i, mb.j), max(mb.i, mb.j)), None)
         self._nodes[mb.i].sources.discard(mb.id)
@@ -500,6 +596,7 @@ class Model:
                         attrs=keep, ends=new_ends, origin=origin)
         self._next_member += 1
         self._members[merged.id] = merged
+        self._index_member(merged)
         self._poskey[(group, min(new_i, new_j), max(new_i, new_j))] = merged.id
         self._nodes[new_i].sources.add(merged.id)
         self._nodes[new_j].sources.add(merged.id)

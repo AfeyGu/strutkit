@@ -94,6 +94,34 @@ def test_crossing_points_never_split():
     assert B.count() == 1
 
 
+def test_cell_mm_validation_and_equivalence():
+    """cell_mm 只影响速度：非法值报错，不同大小建出的模型必须完全一致"""
+    with pytest.raises(ValueError):
+        Model(cell_mm=0)
+    with pytest.raises(ValueError):
+        Model(cell_mm=-5)
+    Model(cell_mm=None)                      # 关闭索引 = 全表扫
+
+    def build(cell):
+        m = Model(cell_mm=cell)
+        C = m.define("C", split="all")
+        B = m.define("B", split=["C"])
+        for x in (0, 2000, 4000):
+            C.add((x, 0, 0), (x, 0, 6000))
+        B.add((0, 0, 3000), (4000, 0, 3000))     # 穿过中间柱
+        return m
+
+    def fingerprint(m):
+        return (sorted(tuple(n.xyz) for n in m.nodes.values()),
+                sorted((mb.group, m.nodes[mb.i].xyz, m.nodes[mb.j].xyz)
+                       for mb in m.members.values()))
+
+    a = fingerprint(build(None))
+    b = fingerprint(build(500.0))
+    c = fingerprint(build(9000.0))
+    assert a == b == c
+
+
 def test_split_string_is_rejected():
     """split 写成字符串要立刻报错：它会被当成字符集合，白名单静默失效"""
     m = _m()
