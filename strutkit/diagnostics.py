@@ -25,11 +25,14 @@ def _fmt(p) -> str:
     return "(" + ", ".join(f"{v:g}" for v in p) + ")"
 
 
-def _fmt_z(z_um: int) -> str:
-    """标高显示成米，保留三位小数：1000mm → 0.000"""
-    if z_um == 0:
+def _fmt_z(z_mm: float) -> str:
+    """标高显示成米，保留三位小数：1000mm → 1.000
+
+    入参是 mm，与调用点 `Node.point` 以及本模块其他格式化函数保持同一单位。
+    """
+    if z_mm == 0:
         return "±0.000"
-    return f"{z_um / UM_PER_MM / 1000:.3f}"
+    return f"{z_mm / 1000:.3f}"
 
 
 def _length_um(model: Model, mb: Member) -> int:
